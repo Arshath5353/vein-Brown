@@ -3,6 +3,8 @@ import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
   signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   signOut,
   sendPasswordResetEmail,
   sendEmailVerification,
@@ -14,6 +16,8 @@ import { readLocalData, writeLocalData } from '../services/localDataService'
 import { initializeUserJournal } from '../services/firestoreService'
 
 export const AuthContext = createContext(null)
+
+const isIos = () => /iphone|ipad|ipod/i.test(navigator.userAgent)
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null)
@@ -27,6 +31,24 @@ export const AuthProvider = ({ children }) => {
   }, [])
 
   useEffect(() => {
+    getRedirectResult(auth).then(async (cred) => {
+      if (cred?.user) {
+        const existing = await readLocalData(cred.user.uid, 'profile')
+        if (!existing) {
+          await writeLocalData(cred.user.uid, 'profile', {
+            uid: cred.user.uid,
+            name: cred.user.displayName || cred.user.email?.split('@')[0] || 'Welcome Back',
+            email: cred.user.email,
+            photoURL: cred.user.photoURL || null,
+            onboardingComplete: false,
+            createdAt: Date.now(),
+            provider: 'google',
+          })
+        }
+        await fetchProfile(cred.user.uid)
+      }
+    }).catch(console.error)
+
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       setUser(firebaseUser)
       try {
@@ -65,6 +87,12 @@ export const AuthProvider = ({ children }) => {
 
   const loginWithGoogle = async () => {
     await setAuthPersistence(true)
+
+    if (isIos()) {
+      await signInWithRedirect(auth, googleProvider)
+      return null
+    }
+
     const cred = await signInWithPopup(auth, googleProvider)
     const existing = await readLocalData(cred.user.uid, 'profile')
     if (!existing) {

@@ -8,7 +8,7 @@ import InstallPrompt from '../pwa/InstallPrompt.jsx'
 const AppLayout = () => (
   <div className="flex min-h-screen bg-bg bg-vein-radial bg-no-repeat">
     <Sidebar />
-    <div className="flex-1">
+    <div className="flex-1 pb-20 md:pb-0">
       <Outlet />
     </div>
     <MobileNav />
