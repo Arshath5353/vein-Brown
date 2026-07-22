@@ -1,0 +1,15 @@
+import { useEffect, useMemo, useState } from 'react'
+import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { useAuth } from '../hooks/useAuth'
+import { getDailyRecords } from '../services/dailyJournalService'
+import Card from '../components/ui/Card.jsx'
+import Modal from '../components/ui/Modal.jsx'
+
+const Calendar = () => {
+  const { user } = useAuth(); const [records, setRecords] = useState({}); const [cursor, setCursor] = useState(new Date()); const [selected, setSelected] = useState(null)
+  useEffect(() => { if (user?.uid) getDailyRecords(user.uid).then(setRecords) }, [user?.uid])
+  const days = useMemo(() => { const first = new Date(cursor.getFullYear(), cursor.getMonth(), 1); const blanks = Array(first.getDay()).fill(null); const count = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 0).getDate(); return [...blanks, ...Array.from({ length: count }, (_, i) => new Date(cursor.getFullYear(), cursor.getMonth(), i + 1))] }, [cursor])
+  const move = (amount) => setCursor((date) => new Date(date.getFullYear(), date.getMonth() + amount, 1))
+  return <div className="page-shell max-w-3xl"><h1 className="font-display text-2xl font-bold">Calendar</h1><p className="mt-1 text-sm text-ink-muted">Tap a day to review its local journal.</p><Card className="mt-6"><div className="mb-5 flex items-center justify-between"><button onClick={() => move(-1)}><ChevronLeft /></button><p className="font-semibold">{cursor.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}</p><button onClick={() => move(1)}><ChevronRight /></button></div><div className="grid grid-cols-7 gap-1 text-center text-xs text-ink-faint">{['S','M','T','W','T','F','S'].map((day, index) => <span key={`${day}-${index}`}>{day}</span>)}</div><div className="mt-2 grid grid-cols-7 gap-1">{days.map((day, index) => { if (!day) return <div key={`blank-${index}`} />; const key = day.toISOString().slice(0,10); const record = records[key]; return <button key={key} onClick={() => setSelected(record || { date: key })} className={`aspect-square rounded-lg border p-1 text-xs ${record ? 'border-accent/40 bg-accent/10 text-white' : 'border-white/5 text-ink-muted'}`}><span>{day.getDate()}</span>{record && <div className="mt-1 flex justify-center gap-0.5"><i className={`h-1.5 w-1.5 rounded-full ${record.workoutHistory.length ? 'bg-green-400' : 'bg-white/20'}`} /><i className={`h-1.5 w-1.5 rounded-full ${record.meals.length ? 'bg-orange-400' : 'bg-white/20'}`} /><i className={`h-1.5 w-1.5 rounded-full ${record.waterIntake >= 3 ? 'bg-blue-400' : 'bg-white/20'}`} /></div>}</button> })}</div></Card><Modal open={Boolean(selected)} onClose={() => setSelected(null)} title={selected?.date || 'Day'}>{selected && <div className="grid grid-cols-2 gap-3 text-sm"><p>Calories <b>{selected.calories || 0}</b></p><p>Protein <b>{selected.protein || 0}g</b></p><p>Water <b>{selected.waterIntake || 0}L</b></p><p>Steps <b>{selected.steps || 0}</b></p><p>Workouts <b>{selected.workoutHistory?.length || 0}</b></p><p>Weight <b>{selected.weight || '—'} kg</b></p></div>}</Modal></div>
+}
+export default Calendar
