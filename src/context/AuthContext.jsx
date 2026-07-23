@@ -48,6 +48,24 @@ export const AuthProvider = ({ children }) => {
         setProfile(currentProfile)
         // 3. Update the local cache so it's ready for next time
         await writeLocalData(uid, 'profile', currentProfile)
+      } else {
+        // Handle case where user exists in Auth but has no Firestore profile 
+        // (e.g., interrupted sign up, legacy user, iOS Safari redirect bug)
+        console.warn('Profile not found in Firestore. Creating fallback.')
+        currentProfile = {
+          uid: uid,
+          name: auth.currentUser?.displayName || auth.currentUser?.email?.split('@')[0] || 'Welcome Back',
+          email: auth.currentUser?.email,
+          photoURL: auth.currentUser?.photoURL || null,
+          onboardingComplete: false,
+          createdAt: Date.now(),
+          provider: 'unknown',
+        }
+        setProfile(currentProfile)
+
+        // Asynchronously try to repair their firestore document
+        setDoc(docRef, currentProfile).catch(err => console.error('Failed to repair profile in Firestore:', err))
+        await writeLocalData(uid, 'profile', currentProfile)
       }
     } catch (error) {
       console.error('Error fetching profile from Firestore:', error)

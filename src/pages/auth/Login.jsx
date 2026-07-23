@@ -65,7 +65,11 @@ const Login = () => {
       console.error('Google sign-in failed:', err.code, err.message, err)
       toast.error(mapAuthError(err.code))
     } finally {
-      setGoogleLoading(false)
+      const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
+      const isPWA = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone
+      if (!isMobile && !isPWA) {
+        setGoogleLoading(false)
+      }
     }
   }
 
