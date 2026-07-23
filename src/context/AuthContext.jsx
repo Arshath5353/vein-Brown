@@ -3,8 +3,6 @@ import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
   signInWithPopup,
-  signInWithRedirect,
-  getRedirectResult,
   signOut,
   sendPasswordResetEmail,
   sendEmailVerification,
@@ -17,8 +15,6 @@ import { readLocalData, writeLocalData } from '../services/localDataService'
 import { initializeUserJournal } from '../services/firestoreService'
 
 export const AuthContext = createContext(null)
-
-const isIos = () => /iphone|ipad|ipod/i.test(navigator.userAgent)
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null)
@@ -83,28 +79,13 @@ export const AuthProvider = ({ children }) => {
   }
 
   useEffect(() => {
-    let internalUser = null
-
-    // Handle iOS Google Sign In Redirects first to prevent race condition
-    const redirectPromise = getRedirectResult(auth).then(async (cred) => {
-      if (cred?.user) {
-        internalUser = cred.user
-        setUser(cred.user)
-        await syncNewUserToFirestore(cred.user, 'google')
-      }
-    }).catch(console.error)
-
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      // Ensure redirect flow finishes before concluding auth state loading
-      await redirectPromise
-
-      const activeUser = internalUser || firebaseUser
-      setUser(activeUser)
+      setUser(firebaseUser)
       try {
-        if (activeUser) {
+        if (firebaseUser) {
           // fetchProfile returns immediately if syncNewUserToFirestore already loaded the cache
-          await fetchProfile(activeUser.uid)
-          await initializeUserJournal(activeUser.uid)
+          await fetchProfile(firebaseUser.uid)
+          await initializeUserJournal(firebaseUser.uid)
         } else {
           setProfile(null)
         }
@@ -153,11 +134,6 @@ export const AuthProvider = ({ children }) => {
 
   const loginWithGoogle = async () => {
     await setAuthPersistence(true)
-
-    if (isIos()) {
-      await signInWithRedirect(auth, googleProvider)
-      return null
-    }
 
     const cred = await signInWithPopup(auth, googleProvider)
     setUser(cred.user)
