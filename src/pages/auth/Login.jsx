@@ -9,6 +9,10 @@ import Input from '../../components/ui/Input.jsx'
 import Button from '../../components/ui/Button.jsx'
 import { mapAuthError } from '../../utils/authErrors'
 import BrandLogo from '../../components/brand/BrandLogo.jsx'
+import { auth, db, googleProvider, setAuthPersistence } from '../../firebase/config'
+import { signInWithCredential, GoogleAuthProvider } from 'firebase/auth'
+import { doc, getDoc, setDoc } from 'firebase/firestore'
+import { writeLocalData } from '../../services/localDataService'
 
 const Login = () => {
   const { login, loginWithGoogle, user, profile } = useAuth()
@@ -20,7 +24,77 @@ const Login = () => {
   const [loading, setLoading] = useState(false)
   const [googleLoading, setGoogleLoading] = useState(false)
 
+  const GOOGLE_CLIENT_ID = '836423512306-qsife9q35aks9embrmtqhqe14q84ohpt.apps.googleusercontent.com'
+
   const from = location.state?.from?.pathname || '/dashboard'
+
+  // GIS Callbacks and Effects
+  useEffect(() => {
+    // Load the GSI script if not present
+    if (!window.google) {
+      const script = document.createElement('script')
+      script.src = 'https://accounts.google.com/gsi/client'
+      script.async = true
+      script.defer = true
+      script.onload = initializeGoogleAuth
+      document.body.appendChild(script)
+    } else {
+      initializeGoogleAuth()
+    }
+
+    function initializeGoogleAuth() {
+      if (!window.google) return
+
+      window.google.accounts.id.initialize({
+        client_id: GOOGLE_CLIENT_ID,
+        callback: handleGISResponse,
+        auto_select: false,
+        use_fedcm_for_prompt: true
+      })
+
+      // We explicitly render the button UI directly over our container
+      window.google.accounts.id.renderButton(
+        document.getElementById('google-btn-container'),
+        { theme: 'outline', size: 'large', width: 330, shape: 'pill' }
+      )
+    }
+  }, [])
+
+  const handleGISResponse = async (response) => {
+    setGoogleLoading(true)
+    try {
+      if (!response.credential) throw new Error("No credential returned from Google.")
+
+      const credential = GoogleAuthProvider.credential(response.credential)
+
+      // Perform final sign-in against our Firebase backend 
+      await setAuthPersistence(true)
+      const fbCred = await signInWithCredential(auth, credential)
+
+      // Directly sync missing metadata for this user if necessary
+      const docRef = doc(db, 'users', fbCred.user.uid)
+      const snap = await getDoc(docRef)
+      if (!snap.exists()) {
+        const profileData = {
+          uid: fbCred.user.uid,
+          name: fbCred.user.displayName || fbCred.user.email?.split('@')[0] || 'Welcome Back',
+          email: fbCred.user.email,
+          photoURL: fbCred.user.photoURL || null,
+          onboardingComplete: false,
+          createdAt: Date.now(),
+          provider: 'google',
+        }
+        await setDoc(docRef, profileData)
+        await writeLocalData(fbCred.user.uid, 'profile', profileData)
+      }
+
+      // User is verified, useEffect router will now detect auth and navigate them
+    } catch (err) {
+      console.error('GIS sign-in failed:', err)
+      toast.error(err?.message || 'Google Auth Failed')
+      setGoogleLoading(false)
+    }
+  }
 
   // FIX: Resilient navigation logic. 
   // Wait until both user and profile states are resolved to prevent race conditions during auth.
@@ -69,18 +143,6 @@ const Login = () => {
     }
   }
 
-  const handleGoogle = async () => {
-    setGoogleLoading(true)
-    try {
-      await loginWithGoogle()
-      // Navigation is handled safely by useEffect
-    } catch (err) {
-      console.error('Google sign-in failed:', err.code, err.message, err)
-      toast.error(mapAuthError(err.code))
-    } finally {
-      setGoogleLoading(false)
-    }
-  }
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-bg bg-vein-radial px-4 py-10">
@@ -139,9 +201,15 @@ const Login = () => {
           <div className="h-px flex-1 bg-white/10" />
         </div>
 
-        <Button variant="secondary" onClick={handleGoogle} loading={googleLoading}>
-          <GoogleIcon /> Continue with Google
-        </Button>
+        <div className="flex justify-center w-full">
+          <div id="google-btn-container"></div>
+        </div>
+
+        {googleLoading && (
+          <p className="mt-4 text-center text-sm font-medium text-ink-muted animate-pulse">
+            Authenticating securely...
+          </p>
+        )}
 
         <p className="mt-8 text-center text-sm text-ink-muted">
           Don't have an account?{' '}
