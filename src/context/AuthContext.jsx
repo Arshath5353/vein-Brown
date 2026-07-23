@@ -16,6 +16,13 @@ import { initializeUserJournal } from '../services/firestoreService'
 
 export const AuthContext = createContext(null)
 
+const withTimeout = (promise, ms = 3000) => {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error('Firestore timeout')), ms))
+  ])
+}
+
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null)
   const [profile, setProfile] = useState(null)
@@ -32,7 +39,7 @@ export const AuthProvider = ({ children }) => {
     // 2. Fetch remote truth from Firestore to handle new devices or cleared caches
     try {
       const docRef = doc(db, 'users', uid)
-      const docSnap = await getDoc(docRef)
+      const docSnap = await withTimeout(getDoc(docRef), 3000)
 
       if (docSnap.exists()) {
         currentProfile = docSnap.data()
@@ -47,11 +54,10 @@ export const AuthProvider = ({ children }) => {
     return currentProfile
   }, [])
 
-  // Helper function to sync a brand new user across both DBs (especially useful for Google Auth)
   const syncNewUserToFirestore = async (firebaseUser, provider) => {
     try {
       const docRef = doc(db, 'users', firebaseUser.uid)
-      const docSnap = await getDoc(docRef)
+      const docSnap = await withTimeout(getDoc(docRef), 3000)
       let profileData
 
       if (!docSnap.exists()) {
@@ -65,7 +71,7 @@ export const AuthProvider = ({ children }) => {
           provider: provider,
         }
         // Save to Firestore so it exists globally
-        await setDoc(docRef, profileData)
+        await withTimeout(setDoc(docRef, profileData), 3000)
       } else {
         profileData = docSnap.data()
       }
@@ -74,7 +80,20 @@ export const AuthProvider = ({ children }) => {
       await writeLocalData(firebaseUser.uid, 'profile', profileData)
       setProfile(profileData)
     } catch (error) {
-      console.error('Error syncing new user to Firestore:', error)
+      console.error('Error syncing new user to Firestore (likely unprovisioned or offline):', error)
+
+      // Still populate locally so they can use the app even if Firestore is down/unprovisioned
+      const profileData = {
+        uid: firebaseUser.uid,
+        name: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'Welcome Back',
+        email: firebaseUser.email,
+        photoURL: firebaseUser.photoURL || null,
+        onboardingComplete: false,
+        createdAt: Date.now(),
+        provider: provider,
+      }
+      await writeLocalData(firebaseUser.uid, 'profile', profileData)
+      setProfile(profileData)
     }
   }
 
