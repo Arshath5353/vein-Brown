@@ -3,6 +3,8 @@ import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
   signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   signOut,
   sendPasswordResetEmail,
   sendEmailVerification,
@@ -98,6 +100,20 @@ export const AuthProvider = ({ children }) => {
   }
 
   useEffect(() => {
+    // Specifically to handle iOS PWA/Mobile redirect flows seamlessly
+    const handleRedirectResult = async () => {
+      try {
+        const cred = await getRedirectResult(auth)
+        if (cred?.user) {
+          await syncNewUserToFirestore(cred.user, 'google')
+        }
+      } catch (error) {
+        console.error('Google Redirect result error:', error)
+      }
+    }
+
+    handleRedirectResult()
+
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       setUser(firebaseUser)
       try {
@@ -154,11 +170,18 @@ export const AuthProvider = ({ children }) => {
   const loginWithGoogle = async () => {
     await setAuthPersistence(true)
 
-    const cred = await signInWithPopup(auth, googleProvider)
-    setUser(cred.user)
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
+    const isPWA = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone
 
-    await syncNewUserToFirestore(cred.user, 'google')
-    return cred.user
+    if (isMobile || isPWA) {
+      await signInWithRedirect(auth, googleProvider)
+      return null // Browser will redirect and reload
+    } else {
+      const cred = await signInWithPopup(auth, googleProvider)
+      setUser(cred.user)
+      await syncNewUserToFirestore(cred.user, 'google')
+      return cred.user
+    }
   }
 
   const logout = () => signOut(auth)
