@@ -209,10 +209,20 @@ export const AuthProvider = ({ children }) => {
 
   const loginWithGoogle = async () => {
     await setAuthPersistence(true)
-    const cred = await signInWithPopup(auth, googleProvider)
-    setUser(cred.user)
-    await syncNewUserToFirestore(cred.user, 'google')
-    return cred.user
+
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
+    const isPWA = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone
+
+    if (isMobile || isPWA) {
+      // Harsh Decision: Use Redirect. Popup will never resolve on iOS PWA. 
+      await signInWithRedirect(auth, googleProvider)
+      return null // Stalls execution while browser redirects
+    } else {
+      const cred = await signInWithPopup(auth, googleProvider)
+      setUser(cred.user)
+      await syncNewUserToFirestore(cred.user, 'google')
+      return cred.user
+    }
   }
 
   const logout = () => signOut(auth)

@@ -25,6 +25,17 @@ const Login = () => {
   // FIX: Resilient navigation logic. 
   // Wait until both user and profile states are resolved to prevent race conditions during auth.
   useEffect(() => {
+    let timeoutId
+
+    if (user && profile === null) {
+      // HARSH DECISION: If iOS PWA is aggressively hanging on profile fetch,
+      // force them into the dashboard after 2 seconds no matter what.
+      timeoutId = setTimeout(() => {
+        toast.success("Forced login recovery.")
+        navigate(from, { replace: true })
+      }, 2000)
+    }
+
     if (!user || profile === null) return // Wait until user is authenticated and profile is completely loaded
 
     if (profile.onboardingComplete === false) {
@@ -32,6 +43,8 @@ const Login = () => {
     } else {
       navigate(from, { replace: true })
     }
+
+    return () => clearTimeout(timeoutId)
   }, [user, profile, navigate, from])
 
   const validate = () => {
