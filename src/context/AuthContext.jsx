@@ -1,4 +1,5 @@
 import { createContext, useEffect, useState, useCallback } from 'react'
+import toast from 'react-hot-toast'
 import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
@@ -123,9 +124,15 @@ export const AuthProvider = ({ children }) => {
       try {
         const cred = await getRedirectResult(auth)
         if (cred?.user) {
+          toast.success('Google Auth Return Success!')
           await syncNewUserToFirestore(cred.user, 'google')
+        } else {
+          // It frequently returns null on first load, so we won't toast here normally.
+          // But to be sure it ran:
+          // console.log('Redirect result null')
         }
       } catch (error) {
+        toast.error('Auth Error: ' + error.message)
         console.error('Google Redirect result error:', error)
       }
     }
