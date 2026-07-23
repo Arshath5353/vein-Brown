@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { Mail, Lock } from 'lucide-react'
@@ -11,15 +11,28 @@ import { mapAuthError } from '../../utils/authErrors'
 import BrandLogo from '../../components/brand/BrandLogo.jsx'
 
 const Login = () => {
-  const { login, loginWithGoogle } = useAuth()
+  const { login, loginWithGoogle, user, profile } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
+  
   const [form, setForm] = useState({ email: '', password: '', rememberMe: true })
   const [errors, setErrors] = useState({})
   const [loading, setLoading] = useState(false)
   const [googleLoading, setGoogleLoading] = useState(false)
 
   const from = location.state?.from?.pathname || '/dashboard'
+
+  // Unified routing logic inside useEffect. 
+  // Triggers automatically after a successful popup OR when returning from an iOS redirect.
+  useEffect(() => {
+    if (user && profile) {
+      if (!profile.onboardingComplete) {
+        navigate('/onboarding', { replace: true })
+      } else {
+        navigate(from, { replace: true })
+      }
+    }
+  }, [user, profile, navigate, from])
 
   const validate = () => {
     const next = {}
@@ -36,7 +49,7 @@ const Login = () => {
     try {
       await login(form)
       toast.success('Welcome back!')
-      navigate(from, { replace: true })
+      // Navigation is now handled safely by useEffect
     } catch (err) {
       toast.error(mapAuthError(err.code))
     } finally {
@@ -48,11 +61,8 @@ const Login = () => {
     setGoogleLoading(true)
     try {
       await loginWithGoogle()
-      toast.success('Welcome back!')
-      navigate('/dashboard', { replace: true })
+      // Navigation happens automatically in useEffect
     } catch (err) {
-      // COOP's window.closed message is a browser warning. This logs the
-      // actionable Firebase failure without leaving the button loading.
       console.error('Google sign-in failed:', err.code, err.message, err)
       toast.error(mapAuthError(err.code))
     } finally {

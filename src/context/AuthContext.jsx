@@ -33,6 +33,8 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     getRedirectResult(auth).then(async (cred) => {
       if (cred?.user) {
+        setUser(cred.user) 
+        
         const existing = await readLocalData(cred.user.uid, 'profile')
         if (!existing) {
           await writeLocalData(cred.user.uid, 'profile', {
@@ -52,17 +54,24 @@ export const AuthProvider = ({ children }) => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       setUser(firebaseUser)
       try {
-        if (firebaseUser) { await fetchProfile(firebaseUser.uid); await initializeUserJournal(firebaseUser.uid) }
-        else setProfile(null)
+        if (firebaseUser) { 
+          await fetchProfile(firebaseUser.uid)
+          await initializeUserJournal(firebaseUser.uid) 
+        } else {
+          setProfile(null)
+        }
       } finally {
         setLoading(false)
       }
     })
+    
     return unsubscribe
   }, [fetchProfile])
 
   const signup = async ({ name, email, password }) => {
     const cred = await createUserWithEmailAndPassword(auth, email, password)
+    setUser(cred.user)
+    
     await updateProfile(cred.user, { displayName: name })
     await sendEmailVerification(cred.user)
     await writeLocalData(cred.user.uid, 'profile', {
@@ -81,7 +90,10 @@ export const AuthProvider = ({ children }) => {
   const login = async ({ email, password, rememberMe = true }) => {
     await setAuthPersistence(rememberMe)
     const cred = await signInWithEmailAndPassword(auth, email, password)
+    
+    setUser(cred.user)
     await fetchProfile(cred.user.uid)
+    
     return cred.user
   }
 
@@ -94,6 +106,8 @@ export const AuthProvider = ({ children }) => {
     }
 
     const cred = await signInWithPopup(auth, googleProvider)
+    setUser(cred.user)
+    
     const existing = await readLocalData(cred.user.uid, 'profile')
     if (!existing) {
       await writeLocalData(cred.user.uid, 'profile', {
