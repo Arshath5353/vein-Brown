@@ -70,6 +70,21 @@ export const AuthProvider = ({ children }) => {
       }
     } catch (error) {
       console.error('Error fetching profile from Firestore:', error)
+
+      // Critical Fallback: If Firestore times out (common on iOS PWA WebSocket hangs),
+      // we must unblock the UI so they don't get stuck on the Login page forever.
+      if (!currentProfile && auth.currentUser) {
+        currentProfile = {
+          uid: uid,
+          name: auth.currentUser.displayName || auth.currentUser.email?.split('@')[0] || 'Offline User',
+          email: auth.currentUser.email,
+          photoURL: auth.currentUser.photoURL || null,
+          onboardingComplete: true, // assume true if we can't fetch it, to let them into the dashboard
+          createdAt: Date.now(),
+          provider: 'offline',
+        }
+        setProfile(currentProfile)
+      }
     }
 
     return currentProfile
