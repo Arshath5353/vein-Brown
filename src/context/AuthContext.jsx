@@ -11,7 +11,8 @@ import {
   updateProfile,
   onAuthStateChanged,
 } from 'firebase/auth'
-import { auth, googleProvider, setAuthPersistence } from '../firebase/config'
+import { doc, getDoc, setDoc } from 'firebase/firestore'
+import { auth, db, googleProvider, setAuthPersistence } from '../firebase/config'
 import { readLocalData, writeLocalData } from '../services/localDataService'
 import { initializeUserJournal } from '../services/firestoreService'
 
@@ -24,39 +25,86 @@ export const AuthProvider = ({ children }) => {
   const [profile, setProfile] = useState(null)
   const [loading, setLoading] = useState(true)
 
+  // FIX: Stale-while-revalidate strategy using Firestore as the Source of Truth
   const fetchProfile = useCallback(async (uid) => {
-    const localProfile = await readLocalData(uid, 'profile')
-    setProfile(localProfile)
-    return localProfile
+    // 1. Try local cache first for instant UI response (prevents stutter)
+    let currentProfile = await readLocalData(uid, 'profile')
+    if (currentProfile) {
+      setProfile(currentProfile)
+    }
+
+    // 2. Fetch remote truth from Firestore to handle new devices or cleared caches
+    try {
+      const docRef = doc(db, 'users', uid)
+      const docSnap = await getDoc(docRef)
+
+      if (docSnap.exists()) {
+        currentProfile = docSnap.data()
+        setProfile(currentProfile)
+        // 3. Update the local cache so it's ready for next time
+        await writeLocalData(uid, 'profile', currentProfile)
+      }
+    } catch (error) {
+      console.error('Error fetching profile from Firestore:', error)
+    }
+
+    return currentProfile
   }, [])
 
-  useEffect(() => {
-    getRedirectResult(auth).then(async (cred) => {
-      if (cred?.user) {
-        setUser(cred.user) 
-        
-        const existing = await readLocalData(cred.user.uid, 'profile')
-        if (!existing) {
-          await writeLocalData(cred.user.uid, 'profile', {
-            uid: cred.user.uid,
-            name: cred.user.displayName || cred.user.email?.split('@')[0] || 'Welcome Back',
-            email: cred.user.email,
-            photoURL: cred.user.photoURL || null,
-            onboardingComplete: false,
-            createdAt: Date.now(),
-            provider: 'google',
-          })
+  // Helper function to sync a brand new user across both DBs (especially useful for Google Auth)
+  const syncNewUserToFirestore = async (firebaseUser, provider) => {
+    try {
+      const docRef = doc(db, 'users', firebaseUser.uid)
+      const docSnap = await getDoc(docRef)
+      let profileData
+
+      if (!docSnap.exists()) {
+        profileData = {
+          uid: firebaseUser.uid,
+          name: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'Welcome Back',
+          email: firebaseUser.email,
+          photoURL: firebaseUser.photoURL || null,
+          onboardingComplete: false,
+          createdAt: Date.now(),
+          provider: provider,
         }
-        await fetchProfile(cred.user.uid)
+        // Save to Firestore so it exists globally
+        await setDoc(docRef, profileData)
+      } else {
+        profileData = docSnap.data()
+      }
+
+      // Save to local cache
+      await writeLocalData(firebaseUser.uid, 'profile', profileData)
+      setProfile(profileData)
+    } catch (error) {
+      console.error('Error syncing new user to Firestore:', error)
+    }
+  }
+
+  useEffect(() => {
+    let internalUser = null
+
+    // Handle iOS Google Sign In Redirects first to prevent race condition
+    const redirectPromise = getRedirectResult(auth).then(async (cred) => {
+      if (cred?.user) {
+        internalUser = cred.user
+        setUser(cred.user)
+        await syncNewUserToFirestore(cred.user, 'google')
       }
     }).catch(console.error)
 
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      setUser(firebaseUser)
+      // Ensure redirect flow finishes before concluding auth state loading
+      await redirectPromise
+
+      const activeUser = internalUser || firebaseUser
+      setUser(activeUser)
       try {
-        if (firebaseUser) { 
-          await fetchProfile(firebaseUser.uid)
-          await initializeUserJournal(firebaseUser.uid) 
+        if (activeUser) {
+          // fetchProfile returns immediately if syncNewUserToFirestore already loaded the cache
+          await fetchProfile(activeUser.uid)
+          await initializeUserJournal(activeUser.uid)
         } else {
           setProfile(null)
         }
@@ -64,17 +112,19 @@ export const AuthProvider = ({ children }) => {
         setLoading(false)
       }
     })
-    
+
     return unsubscribe
   }, [fetchProfile])
 
   const signup = async ({ name, email, password }) => {
     const cred = await createUserWithEmailAndPassword(auth, email, password)
     setUser(cred.user)
-    
+
     await updateProfile(cred.user, { displayName: name })
     await sendEmailVerification(cred.user)
-    await writeLocalData(cred.user.uid, 'profile', {
+
+    // Create baseline data and sync it immediately to Firestore
+    const profileData = {
       uid: cred.user.uid,
       name,
       email,
@@ -82,18 +132,22 @@ export const AuthProvider = ({ children }) => {
       onboardingComplete: false,
       createdAt: Date.now(),
       provider: 'password',
-    })
-    await fetchProfile(cred.user.uid)
+    }
+
+    await setDoc(doc(db, 'users', cred.user.uid), profileData)
+    await writeLocalData(cred.user.uid, 'profile', profileData)
+    setProfile(profileData)
+
     return cred.user
   }
 
   const login = async ({ email, password, rememberMe = true }) => {
     await setAuthPersistence(rememberMe)
     const cred = await signInWithEmailAndPassword(auth, email, password)
-    
+
     setUser(cred.user)
     await fetchProfile(cred.user.uid)
-    
+
     return cred.user
   }
 
@@ -107,20 +161,8 @@ export const AuthProvider = ({ children }) => {
 
     const cred = await signInWithPopup(auth, googleProvider)
     setUser(cred.user)
-    
-    const existing = await readLocalData(cred.user.uid, 'profile')
-    if (!existing) {
-      await writeLocalData(cred.user.uid, 'profile', {
-        uid: cred.user.uid,
-        name: cred.user.displayName || cred.user.email?.split('@')[0] || 'Welcome Back',
-        email: cred.user.email,
-        photoURL: cred.user.photoURL || null,
-        onboardingComplete: false,
-        createdAt: Date.now(),
-        provider: 'google',
-      })
-    }
-    await fetchProfile(cred.user.uid)
+
+    await syncNewUserToFirestore(cred.user, 'google')
     return cred.user
   }
 
