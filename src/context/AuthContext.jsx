@@ -209,19 +209,10 @@ export const AuthProvider = ({ children }) => {
 
   const loginWithGoogle = async () => {
     await setAuthPersistence(true)
-
-    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
-    const isPWA = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone
-
-    if (isMobile || isPWA) {
-      await signInWithRedirect(auth, googleProvider)
-      return null // Browser will redirect and reload
-    } else {
-      const cred = await signInWithPopup(auth, googleProvider)
-      setUser(cred.user)
-      await syncNewUserToFirestore(cred.user, 'google')
-      return cred.user
-    }
+    const cred = await signInWithPopup(auth, googleProvider)
+    setUser(cred.user)
+    await syncNewUserToFirestore(cred.user, 'google')
+    return cred.user
   }
 
   const logout = () => signOut(auth)
